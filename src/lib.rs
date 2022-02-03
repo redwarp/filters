@@ -31,6 +31,13 @@ impl Filter {
             shader_string: include_str!("shaders/grayscale.wgsl").to_string(),
         }
     }
+
+    pub fn hflip() -> Self {
+        Self {
+            name: String::from("hflip"),
+            shader_string: include_str!("shaders/hflip.wgsl").to_string(),
+        }
+    }
 }
 
 impl Image {
@@ -40,6 +47,10 @@ impl Image {
 
     pub async fn inverse(&self) -> Image {
         self.simple_filter(Filter::inverse()).await
+    }
+
+    pub async fn hflip(&self) -> Image {
+        self.simple_filter(Filter::hflip()).await
     }
 
     async fn simple_filter(&self, filter: Filter) -> Image {

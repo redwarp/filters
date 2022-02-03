@@ -7,6 +7,7 @@ use image::{GenericImageView, ImageBuffer, Rgba};
 
 const GRAYSCALE: &str = "grayscale";
 const INVERSE: &str = "inverse";
+const HFLIP: &str = "hflip";
 
 fn main() -> Result<()> {
     let matches = app_from_crate!()
@@ -34,7 +35,7 @@ fn main() -> Result<()> {
         .arg(
             Arg::new("filter")
                 .long("filter")
-                .possible_values(["grayscale", "inverse"])
+                .possible_values(["grayscale", "inverse", "hflip"])
                 .required(true)
                 .multiple_values(true),
         )
@@ -59,6 +60,7 @@ fn main() -> Result<()> {
         image = match filter {
             GRAYSCALE => pollster::block_on(image.grayscale()),
             INVERSE => pollster::block_on(image.inverse()),
+            HFLIP => pollster::block_on(image.hflip()),
             _ => image,
         };
     }
