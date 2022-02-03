@@ -12,7 +12,14 @@ fn main() -> Result<()> {
                 .long("input")
                 .short('i')
                 .required(true)
-                .takes_value(true),
+                .takes_value(true)
+                .validator(|input| {
+                    if input.ends_with(".png") || input.ends_with(".jpg") {
+                        Ok(())
+                    } else {
+                        Err(String::from("Filters only support png or jpg files"))
+                    }
+                }),
         )
         .arg(
             Arg::new("output")
