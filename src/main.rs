@@ -35,36 +35,40 @@ fn main() -> Result<()> {
             Arg::new("filter")
                 .long("filter")
                 .possible_values(["grayscale", "inverse"])
-                .required(true),
+                .required(true)
+                .multiple_values(true),
         )
         .get_matches();
 
     let input = matches.value_of("input").expect("Input is required");
     let image = image::open(input)?;
-    let filter = matches.value_of("filter").expect("Filter is required");
-    let output = output_file_name(matches.value_of("output"), input, filter);
+    let filters = matches.values_of("filter").expect("Filter is required");
+    let filter_contat = filters.clone().collect::<Vec<_>>().join("_");
+    let output = output_file_name(matches.value_of("output"), input, &filter_contat);
 
     let (width, height) = image.dimensions();
 
-    let image = Image {
+    let mut image = Image {
         width,
         height,
         pixels: image.to_rgba8().into_raw(),
     };
 
     let now = Instant::now();
-    let result = match filter {
-        GRAYSCALE => pollster::block_on(image.grayscale()),
-        INVERSE => pollster::block_on(image.inverse()),
-        _ => return Ok(()),
-    };
+    for filter in filters {
+        image = match filter {
+            GRAYSCALE => pollster::block_on(image.grayscale()),
+            INVERSE => pollster::block_on(image.inverse()),
+            _ => image,
+        };
+    }
     println!(
         "Took {} ms to apply the filter to the image",
         now.elapsed().as_millis()
     );
 
     let buffer =
-        ImageBuffer::<Rgba<u8>, _>::from_raw(result.width, result.height, result.pixels).unwrap();
+        ImageBuffer::<Rgba<u8>, _>::from_raw(image.width, image.height, image.pixels).unwrap();
     buffer.save(output).unwrap();
 
     Ok(())
