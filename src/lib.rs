@@ -46,16 +46,13 @@ pub async fn grayscale(image: &Image) -> Image {
         label: Some("texture"),
     });
     queue.write_texture(
-        // Tells wgpu where to copy the pixel data
         wgpu::ImageCopyTexture {
             texture: &input_texture,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
-        // The actual pixel data
         &image.pixels,
-        // The layout of the texture
         wgpu::ImageDataLayout {
             offset: 0,
             bytes_per_row: std::num::NonZeroU32::new(4 * image.width),
@@ -140,7 +137,6 @@ pub async fn grayscale(image: &Image) -> Image {
 }
 
 /// Only works with images whose width are a multiple of 256, which is lame.
-///
 async fn texture_to_cpu(
     device: &Device,
     queue: &Queue,
