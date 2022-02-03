@@ -2,8 +2,11 @@ use std::{path::Path, time::Instant};
 
 use anyhow::Result;
 use clap::{app_from_crate, Arg};
-use filters::{grayscale, Image};
+use filters::Image;
 use image::{GenericImageView, ImageBuffer, Rgba};
+
+const GRAYSCALE: &str = "grayscale";
+const INVERSE: &str = "inverse";
 
 fn main() -> Result<()> {
     let matches = app_from_crate!()
@@ -31,7 +34,7 @@ fn main() -> Result<()> {
         .arg(
             Arg::new("filter")
                 .long("filter")
-                .possible_values(["grayscale"])
+                .possible_values(["grayscale", "inverse"])
                 .required(true),
         )
         .get_matches();
@@ -42,17 +45,17 @@ fn main() -> Result<()> {
     let output = output_file_name(matches.value_of("output"), input, filter);
 
     let (width, height) = image.dimensions();
-    let image_bytes = image.to_rgba8();
 
     let image = Image {
         width,
         height,
-        pixels: image_bytes.into_raw(),
+        pixels: image.to_rgba8().into_raw(),
     };
 
     let now = Instant::now();
     let result = match filter {
-        "grayscale" => pollster::block_on(grayscale(&image)),
+        GRAYSCALE => pollster::block_on(image.grayscale()),
+        INVERSE => pollster::block_on(image.inverse()),
         _ => return Ok(()),
     };
     println!(

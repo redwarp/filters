@@ -12,128 +12,161 @@ pub struct Image {
     pub pixels: Vec<u8>,
 }
 
-pub async fn grayscale(image: &Image) -> Image {
-    println!(
-        "Applying grayscale for image of dim {} x {}",
-        image.width, image.height
-    );
-    let instance = Instance::new(Backends::all());
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptionsBase {
-            power_preference: wgpu::PowerPreference::default(),
-            force_fallback_adapter: false,
-            compatible_surface: None,
-        })
-        .await
-        .unwrap();
-    let (device, queue) = adapter
-        .request_device(&Default::default(), None)
-        .await
-        .unwrap();
+pub struct Filter {
+    pub name: String,
+    pub shader_string: String,
+}
 
-    let texture_size = Extent3d {
-        width: image.width,
-        height: image.height,
-        depth_or_array_layers: 1,
-    };
-    let input_texture = device.create_texture(&TextureDescriptor {
-        size: texture_size,
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: TextureDimension::D2,
-        format: TextureFormat::Rgba8Unorm,
-        usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-        label: Some("texture"),
-    });
-    queue.write_texture(
-        wgpu::ImageCopyTexture {
-            texture: &input_texture,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        &image.pixels,
-        wgpu::ImageDataLayout {
-            offset: 0,
-            bytes_per_row: std::num::NonZeroU32::new(4 * image.width),
-            rows_per_image: std::num::NonZeroU32::new(image.height),
-        },
-        texture_size,
-    );
-    let output_texture = device.create_texture(&TextureDescriptor {
-        label: None,
-        size: texture_size,
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: TextureDimension::D2,
-        format: TextureFormat::Rgba8Unorm,
-        usage: TextureUsages::TEXTURE_BINDING
-            | TextureUsages::COPY_SRC
-            | TextureUsages::STORAGE_BINDING,
-    });
-
-    let shader = device.create_shader_module(&ShaderModuleDescriptor {
-        label: Some("Shader"),
-        source: ShaderSource::Wgsl(include_str!("shaders/grayscale.wgsl").into()),
-    });
-
-    let image_info = device.create_buffer_init(&BufferInitDescriptor {
-        label: Some("Image info"),
-        contents: bytemuck::cast_slice(&[image.width, image.height]),
-        usage: BufferUsages::UNIFORM,
-    });
-
-    let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
-        label: Some("Grayscale"),
-        layout: None,
-        module: &shader,
-        entry_point: "main",
-    });
-
-    let compute_constants = device.create_bind_group(&BindGroupDescriptor {
-        label: Some("Compute constants"),
-        layout: &pipeline.get_bind_group_layout(0),
-        entries: &[BindGroupEntry {
-            binding: 0,
-            resource: image_info.as_entire_binding(),
-        }],
-    });
-
-    let texture_bind_group = device.create_bind_group(&BindGroupDescriptor {
-        label: Some("Texture bind group"),
-        layout: &pipeline.get_bind_group_layout(1),
-        entries: &[
-            BindGroupEntry {
-                binding: 0,
-                resource: BindingResource::TextureView(
-                    &input_texture.create_view(&TextureViewDescriptor::default()),
-                ),
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: BindingResource::TextureView(
-                    &output_texture.create_view(&TextureViewDescriptor::default()),
-                ),
-            },
-        ],
-    });
-
-    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
-    {
-        let (dispatch_with, dispatch_height) = compute_thread_group_size(image, (16, 16));
-        println!("Dispatching {} x {}", dispatch_with, dispatch_height);
-        let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-            label: Some("Grayscale pass"),
-        });
-        compute_pass.set_pipeline(&pipeline);
-        compute_pass.set_bind_group(0, &compute_constants, &[]);
-        compute_pass.set_bind_group(1, &texture_bind_group, &[]);
-        compute_pass.dispatch(dispatch_with, dispatch_height, 1);
+impl Filter {
+    pub fn inverse() -> Self {
+        Self {
+            name: String::from("inverse"),
+            shader_string: include_str!("shaders/inverse.wgsl").to_string(),
+        }
     }
 
-    queue.submit(Some(encoder.finish()));
+    pub fn grayscale() -> Self {
+        Self {
+            name: String::from("grayscale"),
+            shader_string: include_str!("shaders/grayscale.wgsl").to_string(),
+        }
+    }
+}
 
-    texture_to_cpu(&device, &queue, image.width, image.height, &output_texture).await
+impl Image {
+    pub async fn grayscale(&self) -> Image {
+        self.simple_filter(Filter::grayscale()).await
+    }
+
+    pub async fn inverse(&self) -> Image {
+        self.simple_filter(Filter::inverse()).await
+    }
+
+    async fn simple_filter(&self, filter: Filter) -> Image {
+        let captitalized_filter_name = capitalize(&filter.name);
+
+        println!(
+            "Filter {} for image of dim {} x {}",
+            filter.name, self.width, self.height
+        );
+        let instance = Instance::new(Backends::all());
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptionsBase {
+                power_preference: wgpu::PowerPreference::default(),
+                force_fallback_adapter: false,
+                compatible_surface: None,
+            })
+            .await
+            .unwrap();
+        let (device, queue) = adapter
+            .request_device(&Default::default(), None)
+            .await
+            .unwrap();
+
+        let texture_size = Extent3d {
+            width: self.width,
+            height: self.height,
+            depth_or_array_layers: 1,
+        };
+        let input_texture = device.create_texture(&TextureDescriptor {
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            label: Some("texture"),
+        });
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &input_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &self.pixels,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: std::num::NonZeroU32::new(4 * self.width),
+                rows_per_image: std::num::NonZeroU32::new(self.height),
+            },
+            texture_size,
+        );
+        let output_texture = device.create_texture(&TextureDescriptor {
+            label: None,
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_SRC
+                | TextureUsages::STORAGE_BINDING,
+        });
+
+        let shader = device.create_shader_module(&ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: ShaderSource::Wgsl(filter.shader_string.into()),
+        });
+
+        let image_info = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Image info"),
+            contents: bytemuck::cast_slice(&[self.width, self.height]),
+            usage: BufferUsages::UNIFORM,
+        });
+
+        let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some(format!("{} pipeline", captitalized_filter_name).as_str()),
+            layout: None,
+            module: &shader,
+            entry_point: "main",
+        });
+
+        let compute_constants = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("Compute constants"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: image_info.as_entire_binding(),
+            }],
+        });
+
+        let texture_bind_group = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("Texture bind group"),
+            layout: &pipeline.get_bind_group_layout(1),
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::TextureView(
+                        &input_texture.create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::TextureView(
+                        &output_texture.create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+            ],
+        });
+
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
+        {
+            let (dispatch_with, dispatch_height) = compute_thread_group_size(self, (16, 16));
+            println!("Dispatching {} x {}", dispatch_with, dispatch_height);
+            let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some(format!("{} pass", captitalized_filter_name).as_str()),
+            });
+            compute_pass.set_pipeline(&pipeline);
+            compute_pass.set_bind_group(0, &compute_constants, &[]);
+            compute_pass.set_bind_group(1, &texture_bind_group, &[]);
+            compute_pass.dispatch(dispatch_with, dispatch_height, 1);
+        }
+
+        queue.submit(Some(encoder.finish()));
+
+        texture_to_cpu(&device, &queue, self.width, self.height, &output_texture).await
+    }
 }
 
 /// Only works with images whose width are a multiple of 256, which is lame.
@@ -197,4 +230,12 @@ fn compute_thread_group_size(image: &Image, workgroup_size: (u32, u32)) -> (u32,
     let height = (image.height + workgroup_size.1 - 1) / workgroup_size.1;
 
     (width, height)
+}
+
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        None => String::new(),
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+    }
 }
