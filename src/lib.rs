@@ -194,7 +194,12 @@ async fn texture_to_cpu(
         height,
         depth_or_array_layers: 1,
     };
-    let output_buffer_size = width as u64 * height as u64 * std::mem::size_of::<u32>() as u64;
+
+    let padded_bytes_per_row = padded_bytes_per_row(width);
+    let unpadded_bytes_per_row = width as usize * 4;
+
+    let output_buffer_size =
+        padded_bytes_per_row as u64 * height as u64 * std::mem::size_of::<u8>() as u64;
     let output_buffer = device.create_buffer(&BufferDescriptor {
         label: None,
         size: output_buffer_size,
@@ -213,7 +218,7 @@ async fn texture_to_cpu(
             buffer: &output_buffer,
             layout: wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: std::num::NonZeroU32::new(4 * width),
+                bytes_per_row: std::num::NonZeroU32::new(padded_bytes_per_row as u32),
                 rows_per_image: std::num::NonZeroU32::new(height),
             },
         },
@@ -228,11 +233,23 @@ async fn texture_to_cpu(
     mapping.await.unwrap();
 
     let data = buffer_slice.get_mapped_range();
+    let padded_data = data.to_vec();
+    // let mut pixels: Vec<u8> = Vec::with_capacity(width as usize * height as usize * 4);
+    let mut pixels: Vec<u8> = vec![0; unpadded_bytes_per_row * height as usize];
+    for i in 0..height as usize {
+        let padded_range_start = i * padded_bytes_per_row;
+        let unpadded_range_start = i * unpadded_bytes_per_row;
+
+        pixels[unpadded_range_start..unpadded_range_start + unpadded_bytes_per_row]
+            .copy_from_slice(
+                &padded_data[padded_range_start..padded_range_start + unpadded_bytes_per_row],
+            );
+    }
 
     Image {
         width,
         height,
-        pixels: data.to_vec(),
+        pixels,
     }
 }
 
@@ -243,10 +260,42 @@ fn compute_thread_group_size(image: &Image, workgroup_size: (u32, u32)) -> (u32,
     (width, height)
 }
 
+fn padded_bytes_per_row(width: u32) -> usize {
+    let bytes_per_row = width as usize * 4;
+    let padding = (256 - bytes_per_row % 256) % 256;
+    bytes_per_row + padding
+}
+
 fn capitalize(s: &str) -> String {
     let mut c = s.chars();
     match c.next() {
         None => String::new(),
         Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::padded_bytes_per_row;
+
+    #[test]
+    fn padded_bytes_per_row_width_4() {
+        let padded = padded_bytes_per_row(4);
+
+        assert_eq!(256, padded)
+    }
+
+    #[test]
+    fn padded_bytes_per_row_width_64() {
+        let padded = padded_bytes_per_row(64);
+
+        assert_eq!(256, padded)
+    }
+
+    #[test]
+    fn padded_bytes_per_row_width_65() {
+        let padded = padded_bytes_per_row(65);
+
+        assert_eq!(512, padded)
     }
 }
