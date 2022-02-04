@@ -1,4 +1,7 @@
-use std::{path::Path, time::Instant};
+use std::{
+    path::{Path, PathBuf},
+    time::Instant,
+};
 
 use anyhow::Result;
 use clap::{app_from_crate, Arg};
@@ -46,7 +49,7 @@ fn main() -> Result<()> {
     let image = image::open(input)?;
     let filters = matches.values_of("filter").expect("Filter is required");
     let filter_contat = filters.clone().collect::<Vec<_>>().join("_");
-    let output = output_file_name(matches.value_of("output"), input, &filter_contat);
+    let output = output_file(matches.value_of("output"), input, &filter_contat);
 
     let (width, height) = image.dimensions();
 
@@ -82,14 +85,20 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn output_file_name(output: Option<&str>, input: &str, filter: &str) -> String {
+fn output_file(output: Option<&str>, input: &str, filter: &str) -> PathBuf {
     if let Some(output) = output {
-        output.to_owned()
+        Path::new(output).to_owned()
     } else {
         let path = Path::new(input);
         let parent = path.parent();
-        let stem = path.file_stem().unwrap().to_string_lossy();
-        let extension = path.extension().unwrap().to_string_lossy();
+        let stem = path
+            .file_stem()
+            .expect("Expecting .jpg or .png files")
+            .to_string_lossy();
+        let extension = path
+            .extension()
+            .expect("Expecting .jpg or .png files")
+            .to_string_lossy();
 
         let filename = format!("{}_{}.{}", stem, filter, extension);
         let output_path = if let Some(parent) = parent {
@@ -98,25 +107,25 @@ fn output_file_name(output: Option<&str>, input: &str, filter: &str) -> String {
             Path::new(&filename).to_path_buf()
         };
 
-        output_path.to_string_lossy().to_string()
+        output_path
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::output_file_name;
+    use crate::output_file;
 
     #[test]
     fn output_file_name_no_specified() {
-        let file_path = output_file_name(None, "sunflower.png", "grayscale");
+        let file_path = output_file(None, "sunflower.png", "grayscale");
 
-        assert_eq!("sunflower_grayscale.png", file_path);
+        assert_eq!("sunflower_grayscale.png", file_path.to_string_lossy());
     }
 
     #[test]
     fn output_file_name_output_specified() {
-        let file_path = output_file_name(Some("output.png"), "sunflower.png", "grayscale");
+        let file_path = output_file(Some("output.png"), "sunflower.png", "grayscale");
 
-        assert_eq!("output.png", file_path);
+        assert_eq!("output.png", file_path.to_string_lossy());
     }
 }
