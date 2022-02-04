@@ -8,6 +8,7 @@ use image::{GenericImageView, ImageBuffer, Rgba};
 const GRAYSCALE: &str = "grayscale";
 const INVERSE: &str = "inverse";
 const HFLIP: &str = "hflip";
+const VFLIP: &str = "vflip";
 
 fn main() -> Result<()> {
     let matches = app_from_crate!()
@@ -35,7 +36,7 @@ fn main() -> Result<()> {
         .arg(
             Arg::new("filter")
                 .long("filter")
-                .possible_values(["grayscale", "inverse", "hflip"])
+                .possible_values(["grayscale", "inverse", "hflip", "vflip"])
                 .required(true)
                 .multiple_values(true),
         )
@@ -61,6 +62,7 @@ fn main() -> Result<()> {
             GRAYSCALE => pollster::block_on(image.grayscale()),
             INVERSE => pollster::block_on(image.inverse()),
             HFLIP => pollster::block_on(image.hflip()),
+            VFLIP => pollster::block_on(image.vflip()),
             _ => image,
         };
     }
@@ -82,8 +84,8 @@ fn output_file_name(output: Option<&str>, input: &str, filter: &str) -> String {
     } else {
         let path = Path::new(input);
         let parent = path.parent();
-        let stem = path.file_stem().unwrap().to_str().unwrap();
-        let extension = path.extension().unwrap().to_str().unwrap();
+        let stem = path.file_stem().unwrap().to_string_lossy();
+        let extension = path.extension().unwrap().to_string_lossy();
 
         let filename = format!("{}_{}.{}", stem, filter, extension);
         let output_path = if let Some(parent) = parent {
@@ -92,7 +94,7 @@ fn output_file_name(output: Option<&str>, input: &str, filter: &str) -> String {
             Path::new(&filename).to_path_buf()
         };
 
-        output_path.to_str().unwrap().to_owned()
+        output_path.to_string_lossy().to_string()
     }
 }
 

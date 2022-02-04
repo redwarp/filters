@@ -2,9 +2,14 @@ use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     Backends, BindGroupDescriptor, BindGroupEntry, BindingResource, BufferDescriptor, BufferUsages,
     CommandEncoderDescriptor, ComputePassDescriptor, ComputePipelineDescriptor, Device, Extent3d,
-    Instance, Queue, ShaderModuleDescriptor, ShaderSource, Texture, TextureDescriptor,
-    TextureDimension, TextureFormat, TextureUsages, TextureViewDescriptor,
+    Instance, PowerPreference, Queue, ShaderModuleDescriptor, ShaderSource, Texture,
+    TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureViewDescriptor,
 };
+
+const INVERSE_SHADER: &str = include_str!("shaders/inverse.wgsl");
+const GRAYSCALE_SHADER: &str = include_str!("shaders/grayscale.wgsl");
+const HFLIP_SHADER: &str = include_str!("shaders/hflip.wgsl");
+const VFLIP_SHADER: &str = include_str!("shaders/vflip.wgsl");
 
 pub struct Image {
     pub width: u32,
@@ -12,58 +17,33 @@ pub struct Image {
     pub pixels: Vec<u8>,
 }
 
-pub struct Filter {
-    pub name: String,
-    pub shader_string: String,
-}
-
-impl Filter {
-    pub fn inverse() -> Self {
-        Self {
-            name: String::from("inverse"),
-            shader_string: include_str!("shaders/inverse.wgsl").to_string(),
-        }
-    }
-
-    pub fn grayscale() -> Self {
-        Self {
-            name: String::from("grayscale"),
-            shader_string: include_str!("shaders/grayscale.wgsl").to_string(),
-        }
-    }
-
-    pub fn hflip() -> Self {
-        Self {
-            name: String::from("hflip"),
-            shader_string: include_str!("shaders/hflip.wgsl").to_string(),
-        }
-    }
-}
-
 impl Image {
     pub async fn grayscale(&self) -> Image {
-        self.simple_filter(Filter::grayscale()).await
+        self.simple_filter("grayscale", GRAYSCALE_SHADER).await
     }
 
     pub async fn inverse(&self) -> Image {
-        self.simple_filter(Filter::inverse()).await
+        self.simple_filter("inverse", INVERSE_SHADER).await
     }
 
     pub async fn hflip(&self) -> Image {
-        self.simple_filter(Filter::hflip()).await
+        self.simple_filter("hflip", HFLIP_SHADER).await
+    }
+    pub async fn vflip(&self) -> Image {
+        self.simple_filter("vflip", VFLIP_SHADER).await
     }
 
-    async fn simple_filter(&self, filter: Filter) -> Image {
-        let captitalized_filter_name = capitalize(&filter.name);
+    async fn simple_filter(&self, name: &str, shader_string: &str) -> Image {
+        let captitalized_filter_name = capitalize(name);
 
         println!(
             "Filter {} for image of dim {} x {}",
-            filter.name, self.width, self.height
+            name, self.width, self.height
         );
         let instance = Instance::new(Backends::all());
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptionsBase {
-                power_preference: wgpu::PowerPreference::default(),
+                power_preference: PowerPreference::HighPerformance,
                 force_fallback_adapter: false,
                 compatible_surface: None,
             })
@@ -117,7 +97,7 @@ impl Image {
 
         let shader = device.create_shader_module(&ShaderModuleDescriptor {
             label: Some("Shader"),
-            source: ShaderSource::Wgsl(filter.shader_string.into()),
+            source: ShaderSource::Wgsl(shader_string.into()),
         });
 
         let image_info = device.create_buffer_init(&BufferInitDescriptor {
@@ -163,7 +143,7 @@ impl Image {
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
         {
-            let (dispatch_with, dispatch_height) = compute_thread_group_size(self, (16, 16));
+            let (dispatch_with, dispatch_height) = compute_work_group_count(self, (16, 16));
             println!("Dispatching {} x {}", dispatch_with, dispatch_height);
             let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
                 label: Some(format!("{} pass", captitalized_filter_name).as_str()),
@@ -180,7 +160,10 @@ impl Image {
     }
 }
 
-/// Only works with images whose width are a multiple of 256, which is lame.
+/// Copies a texture from the gpu to the cpu. The tricky part here is that the encoder's method `copy_texture_to_buffer`
+/// only works when the image copy buffer's bytes per row are a multiple of 256.
+/// So this operation needs to happen in two faces: First, we copy to a buffer, padding the width so it's a multiple of 256.
+/// Then, we copy the buffer to the final image, slice by slice, by ignoring the extra padded bits of the buffer.
 async fn texture_to_cpu(
     device: &Device,
     queue: &Queue,
@@ -232,18 +215,14 @@ async fn texture_to_cpu(
     device.poll(wgpu::Maintain::Wait);
     mapping.await.unwrap();
 
-    let data = buffer_slice.get_mapped_range();
-    let padded_data = data.to_vec();
-    // let mut pixels: Vec<u8> = Vec::with_capacity(width as usize * height as usize * 4);
+    let padded_data = buffer_slice.get_mapped_range();
     let mut pixels: Vec<u8> = vec![0; unpadded_bytes_per_row * height as usize];
-    for i in 0..height as usize {
-        let padded_range_start = i * padded_bytes_per_row;
-        let unpadded_range_start = i * unpadded_bytes_per_row;
 
-        pixels[unpadded_range_start..unpadded_range_start + unpadded_bytes_per_row]
-            .copy_from_slice(
-                &padded_data[padded_range_start..padded_range_start + unpadded_bytes_per_row],
-            );
+    for (padded, pixels) in padded_data
+        .chunks_exact(padded_bytes_per_row)
+        .zip(pixels.chunks_exact_mut(unpadded_bytes_per_row))
+    {
+        pixels.copy_from_slice(&padded[..unpadded_bytes_per_row]);
     }
 
     Image {
@@ -253,13 +232,23 @@ async fn texture_to_cpu(
     }
 }
 
-fn compute_thread_group_size(image: &Image, workgroup_size: (u32, u32)) -> (u32, u32) {
+/// Compute the amount of work groups to be dispatched for an image, based on the work group size.
+/// Chances are, the group will not match perfectly, like an image of width 100, for a workgroup size of 32.
+/// To make sure the that the whole 100 pixels are visited, then we would need a count of 4, as 4 * 32 = 128,
+/// which is bigger than 100. A count of 3 would be too little, as it means 96, so four columns (or, 100 - 96) would be ignored.
+///
+/// # Arguments
+///
+/// * `image` - The image we are working on.
+/// * `workgroup_size` - The width and height dimensions of the compute workgroup.
+fn compute_work_group_count(image: &Image, workgroup_size: (u32, u32)) -> (u32, u32) {
     let width = (image.width + workgroup_size.0 - 1) / workgroup_size.0;
     let height = (image.height + workgroup_size.1 - 1) / workgroup_size.1;
 
     (width, height)
 }
 
+/// Compute the next multiple of 256 for texture retrival padding.
 fn padded_bytes_per_row(width: u32) -> usize {
     let bytes_per_row = width as usize * 4;
     let padding = (256 - bytes_per_row % 256) % 256;
@@ -276,7 +265,7 @@ fn capitalize(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::padded_bytes_per_row;
+    use crate::{compute_work_group_count, padded_bytes_per_row, Image};
 
     #[test]
     fn padded_bytes_per_row_width_4() {
@@ -297,5 +286,18 @@ mod tests {
         let padded = padded_bytes_per_row(65);
 
         assert_eq!(512, padded)
+    }
+
+    #[test]
+    fn compute_work_group_count_100x200_group_32x32() {
+        let image = Image {
+            width: 100,
+            height: 200,
+            pixels: vec![],
+        };
+
+        let group_count = compute_work_group_count(&image, (32, 32));
+
+        assert_eq!((4, 7), group_count);
     }
 }
