@@ -8,3 +8,4 @@ Currently, contains:
 
 Test image:
 * [Bled, Slovenia, from Ursa Bavcar](https://unsplash.com/photos/6O4zf9lga6Q)
+* [Sushi](https://publicdomainvectors.org/en/free-clipart/Sushi-food-vector-illustration/13738.html)

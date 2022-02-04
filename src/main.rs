@@ -5,13 +5,14 @@ use std::{
 
 use anyhow::Result;
 use clap::{app_from_crate, Arg};
-use filters::Image;
+use filters::{Image, Resize};
 use image::{GenericImageView, ImageBuffer, Rgba};
 
 const GRAYSCALE: &str = "grayscale";
 const INVERSE: &str = "inverse";
 const HFLIP: &str = "hflip";
 const VFLIP: &str = "vflip";
+const HALF: &str = "half";
 
 fn main() -> Result<()> {
     let matches = app_from_crate!()
@@ -39,7 +40,7 @@ fn main() -> Result<()> {
         .arg(
             Arg::new("filter")
                 .long("filter")
-                .possible_values(["grayscale", "inverse", "hflip", "vflip"])
+                .possible_values([GRAYSCALE, INVERSE, HFLIP, VFLIP, HALF])
                 .required(true)
                 .multiple_values(true),
         )
@@ -68,6 +69,10 @@ fn main() -> Result<()> {
             INVERSE => (operation.inverse()),
             HFLIP => (operation.hflip()),
             VFLIP => (operation.vflip()),
+            HALF => {
+                let (width, height) = operation.dimensions();
+                operation.resize((width / 2, height / 2), Resize::Linear)
+            }
             _ => operation,
         };
     }
