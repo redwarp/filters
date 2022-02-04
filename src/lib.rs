@@ -192,7 +192,7 @@ impl Operation {
         self
     }
 
-    pub async fn execute(&self) -> Image {
+    pub async fn execute(self) -> Image {
         texture_to_cpu(
             &self.device,
             &self.queue,
