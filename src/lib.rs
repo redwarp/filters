@@ -18,28 +18,20 @@ pub struct Image {
 }
 
 impl Image {
-    pub async fn grayscale(&self) -> Image {
-        self.simple_filter("grayscale", GRAYSCALE_SHADER).await
+    pub async fn operation(&self) -> Operation {
+        Operation::new(self).await
     }
+}
 
-    pub async fn inverse(&self) -> Image {
-        self.simple_filter("inverse", INVERSE_SHADER).await
-    }
+pub struct Operation {
+    device: Device,
+    queue: Queue,
+    texture: Texture,
+    texture_size: Extent3d,
+}
 
-    pub async fn hflip(&self) -> Image {
-        self.simple_filter("hflip", HFLIP_SHADER).await
-    }
-    pub async fn vflip(&self) -> Image {
-        self.simple_filter("vflip", VFLIP_SHADER).await
-    }
-
-    async fn simple_filter(&self, name: &str, shader_string: &str) -> Image {
-        let captitalized_filter_name = capitalize(name);
-
-        println!(
-            "Filter {} for image of dim {} x {}",
-            name, self.width, self.height
-        );
+impl Operation {
+    async fn new(image: &Image) -> Self {
         let instance = Instance::new(Backends::all());
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptionsBase {
@@ -55,11 +47,12 @@ impl Image {
             .unwrap();
 
         let texture_size = Extent3d {
-            width: self.width,
-            height: self.height,
+            width: image.width,
+            height: image.height,
             depth_or_array_layers: 1,
         };
-        let input_texture = device.create_texture(&TextureDescriptor {
+
+        let texture = device.create_texture(&TextureDescriptor {
             size: texture_size,
             mip_level_count: 1,
             sample_count: 1,
@@ -70,22 +63,54 @@ impl Image {
         });
         queue.write_texture(
             wgpu::ImageCopyTexture {
-                texture: &input_texture,
+                texture: &texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &self.pixels,
+            &image.pixels,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: std::num::NonZeroU32::new(4 * self.width),
-                rows_per_image: std::num::NonZeroU32::new(self.height),
+                bytes_per_row: std::num::NonZeroU32::new(4 * image.width),
+                rows_per_image: std::num::NonZeroU32::new(image.height),
             },
             texture_size,
         );
-        let output_texture = device.create_texture(&TextureDescriptor {
+
+        Self {
+            device,
+            queue,
+            texture,
+            texture_size,
+        }
+    }
+
+    pub fn grayscale(self) -> Self {
+        self.simple_filter("grayscale", GRAYSCALE_SHADER)
+    }
+
+    pub fn inverse(self) -> Self {
+        self.simple_filter("inverse", INVERSE_SHADER)
+    }
+
+    pub fn hflip(self) -> Self {
+        self.simple_filter("hflip", HFLIP_SHADER)
+    }
+    pub fn vflip(self) -> Self {
+        self.simple_filter("vflip", VFLIP_SHADER)
+    }
+
+    fn simple_filter(mut self, name: &str, shader_string: &str) -> Self {
+        let capitalized_filter_name = capitalize(name);
+
+        println!(
+            "Filter {} for image of dim {} x {}",
+            name, self.texture_size.width, self.texture_size.height
+        );
+
+        let output_texture = self.device.create_texture(&TextureDescriptor {
             label: None,
-            size: texture_size,
+            size: self.texture_size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
@@ -95,25 +120,27 @@ impl Image {
                 | TextureUsages::STORAGE_BINDING,
         });
 
-        let shader = device.create_shader_module(&ShaderModuleDescriptor {
+        let shader = self.device.create_shader_module(&ShaderModuleDescriptor {
             label: Some("Shader"),
             source: ShaderSource::Wgsl(shader_string.into()),
         });
 
-        let image_info = device.create_buffer_init(&BufferInitDescriptor {
+        let image_info = self.device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Image info"),
-            contents: bytemuck::cast_slice(&[self.width, self.height]),
+            contents: bytemuck::cast_slice(&[self.texture_size.width, self.texture_size.height]),
             usage: BufferUsages::UNIFORM,
         });
 
-        let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
-            label: Some(format!("{} pipeline", captitalized_filter_name).as_str()),
-            layout: None,
-            module: &shader,
-            entry_point: "main",
-        });
+        let pipeline = self
+            .device
+            .create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some(format!("{} pipeline", capitalized_filter_name).as_str()),
+                layout: None,
+                module: &shader,
+                entry_point: "main",
+            });
 
-        let compute_constants = device.create_bind_group(&BindGroupDescriptor {
+        let compute_constants = self.device.create_bind_group(&BindGroupDescriptor {
             label: Some("Compute constants"),
             layout: &pipeline.get_bind_group_layout(0),
             entries: &[BindGroupEntry {
@@ -122,14 +149,14 @@ impl Image {
             }],
         });
 
-        let texture_bind_group = device.create_bind_group(&BindGroupDescriptor {
+        let texture_bind_group = self.device.create_bind_group(&BindGroupDescriptor {
             label: Some("Texture bind group"),
             layout: &pipeline.get_bind_group_layout(1),
             entries: &[
                 BindGroupEntry {
                     binding: 0,
                     resource: BindingResource::TextureView(
-                        &input_texture.create_view(&TextureViewDescriptor::default()),
+                        &self.texture.create_view(&TextureViewDescriptor::default()),
                     ),
                 },
                 BindGroupEntry {
@@ -141,12 +168,17 @@ impl Image {
             ],
         });
 
-        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: None });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor { label: None });
         {
-            let (dispatch_with, dispatch_height) = compute_work_group_count(self, (16, 16));
+            let (dispatch_with, dispatch_height) = compute_work_group_count(
+                (self.texture_size.width, self.texture_size.height),
+                (16, 16),
+            );
             println!("Dispatching {} x {}", dispatch_with, dispatch_height);
             let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-                label: Some(format!("{} pass", captitalized_filter_name).as_str()),
+                label: Some(format!("{} pass", capitalized_filter_name).as_str()),
             });
             compute_pass.set_pipeline(&pipeline);
             compute_pass.set_bind_group(0, &compute_constants, &[]);
@@ -154,9 +186,21 @@ impl Image {
             compute_pass.dispatch(dispatch_with, dispatch_height, 1);
         }
 
-        queue.submit(Some(encoder.finish()));
+        self.queue.submit(Some(encoder.finish()));
+        self.texture = output_texture;
 
-        texture_to_cpu(&device, &queue, self.width, self.height, &output_texture).await
+        self
+    }
+
+    pub async fn execute(&self) -> Image {
+        texture_to_cpu(
+            &self.device,
+            &self.queue,
+            self.texture_size.width,
+            self.texture_size.height,
+            &self.texture,
+        )
+        .await
     }
 }
 
@@ -239,11 +283,14 @@ async fn texture_to_cpu(
 ///
 /// # Arguments
 ///
-/// * `image` - The image we are working on.
-/// * `workgroup_size` - The width and height dimensions of the compute workgroup.
-fn compute_work_group_count(image: &Image, workgroup_size: (u32, u32)) -> (u32, u32) {
-    let width = (image.width + workgroup_size.0 - 1) / workgroup_size.0;
-    let height = (image.height + workgroup_size.1 - 1) / workgroup_size.1;
+/// * `(width, height)` - The dimension of the image we are working on.
+/// * `(workgroup_width, workgroup_height)` - The width and height dimensions of the compute workgroup.
+fn compute_work_group_count(
+    (width, height): (u32, u32),
+    (workgroup_width, workgroup_height): (u32, u32),
+) -> (u32, u32) {
+    let width = (width + workgroup_width - 1) / workgroup_width;
+    let height = (height + workgroup_height - 1) / workgroup_height;
 
     (width, height)
 }
@@ -265,7 +312,7 @@ fn capitalize(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::{compute_work_group_count, padded_bytes_per_row, Image};
+    use crate::{compute_work_group_count, padded_bytes_per_row};
 
     #[test]
     fn padded_bytes_per_row_width_4() {
@@ -290,13 +337,7 @@ mod tests {
 
     #[test]
     fn compute_work_group_count_100x200_group_32x32() {
-        let image = Image {
-            width: 100,
-            height: 200,
-            pixels: vec![],
-        };
-
-        let group_count = compute_work_group_count(&image, (32, 32));
+        let group_count = compute_work_group_count((100, 200), (32, 32));
 
         assert_eq!((4, 7), group_count);
     }

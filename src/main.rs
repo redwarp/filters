@@ -50,22 +50,26 @@ fn main() -> Result<()> {
 
     let (width, height) = image.dimensions();
 
-    let mut image = Image {
+    let image = Image {
         width,
         height,
         pixels: image.to_rgba8().into_raw(),
     };
 
     let now = Instant::now();
+    let mut operation = pollster::block_on(image.operation());
+
     for filter in filters {
-        image = match filter {
-            GRAYSCALE => pollster::block_on(image.grayscale()),
-            INVERSE => pollster::block_on(image.inverse()),
-            HFLIP => pollster::block_on(image.hflip()),
-            VFLIP => pollster::block_on(image.vflip()),
-            _ => image,
+        operation = match filter {
+            GRAYSCALE => (operation.grayscale()),
+            INVERSE => (operation.inverse()),
+            HFLIP => (operation.hflip()),
+            VFLIP => (operation.vflip()),
+            _ => operation,
         };
     }
+    let image = pollster::block_on(operation.execute());
+
     println!(
         "Took {} ms to apply the filter to the image",
         now.elapsed().as_millis()
