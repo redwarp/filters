@@ -13,6 +13,7 @@ const INVERSE: &str = "inverse";
 const HFLIP: &str = "hflip";
 const VFLIP: &str = "vflip";
 const HALF: &str = "half";
+const BLUR: &str = "blur";
 
 fn main() -> Result<()> {
     let matches = app_from_crate!()
@@ -40,7 +41,7 @@ fn main() -> Result<()> {
         .arg(
             Arg::new("filter")
                 .long("filter")
-                .possible_values([GRAYSCALE, INVERSE, HFLIP, VFLIP, HALF])
+                .possible_values([GRAYSCALE, INVERSE, HFLIP, VFLIP, HALF, BLUR])
                 .required(true)
                 .multiple_values(true),
         )
@@ -73,6 +74,7 @@ fn main() -> Result<()> {
                 let (width, height) = operation.dimensions();
                 operation.resize((width / 2, height / 2), Resize::Linear)
             }
+            BLUR => operation.box_blur(15),
             _ => operation,
         };
     }

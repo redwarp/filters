@@ -12,6 +12,7 @@ const GRAYSCALE_SHADER: &str = include_str!("shaders/grayscale.wgsl");
 const HFLIP_SHADER: &str = include_str!("shaders/hflip.wgsl");
 const VFLIP_SHADER: &str = include_str!("shaders/vflip.wgsl");
 const RESIZE_SHADER: &str = include_str!("shaders/resize.wgsl");
+const BOX_BLUR_SHADER: &str = include_str!("shaders/box_blur.wgsl");
 
 pub struct Image {
     pub width: u32,
@@ -109,92 +110,6 @@ impl Operation {
 
     pub fn dimensions(&self) -> (u32, u32) {
         (self.texture_size.width, self.texture_size.height)
-    }
-
-    fn simple_filter(mut self, name: &str, shader_string: &str) -> Self {
-        let capitalized_filter_name = capitalize(name);
-
-        let output_texture = self.device.create_texture(&TextureDescriptor {
-            label: None,
-            size: self.texture_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8Unorm,
-            usage: TextureUsages::TEXTURE_BINDING
-                | TextureUsages::COPY_SRC
-                | TextureUsages::STORAGE_BINDING,
-        });
-
-        let shader = self.device.create_shader_module(&ShaderModuleDescriptor {
-            label: Some("Shader"),
-            source: ShaderSource::Wgsl(shader_string.into()),
-        });
-
-        let image_info = self.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Image info"),
-            contents: bytemuck::cast_slice(&[self.texture_size.width, self.texture_size.height]),
-            usage: BufferUsages::UNIFORM,
-        });
-
-        let pipeline = self
-            .device
-            .create_compute_pipeline(&ComputePipelineDescriptor {
-                label: Some(format!("{} pipeline", capitalized_filter_name).as_str()),
-                layout: None,
-                module: &shader,
-                entry_point: "main",
-            });
-
-        let compute_constants = self.device.create_bind_group(&BindGroupDescriptor {
-            label: Some("Compute constants"),
-            layout: &pipeline.get_bind_group_layout(0),
-            entries: &[BindGroupEntry {
-                binding: 0,
-                resource: image_info.as_entire_binding(),
-            }],
-        });
-
-        let texture_bind_group = self.device.create_bind_group(&BindGroupDescriptor {
-            label: Some("Texture bind group"),
-            layout: &pipeline.get_bind_group_layout(1),
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: BindingResource::TextureView(
-                        &self.texture.create_view(&TextureViewDescriptor::default()),
-                    ),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::TextureView(
-                        &output_texture.create_view(&TextureViewDescriptor::default()),
-                    ),
-                },
-            ],
-        });
-
-        let mut encoder = self
-            .device
-            .create_command_encoder(&CommandEncoderDescriptor { label: None });
-        {
-            let (dispatch_with, dispatch_height) = compute_work_group_count(
-                (self.texture_size.width, self.texture_size.height),
-                (16, 16),
-            );
-            let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-                label: Some(format!("{} pass", capitalized_filter_name).as_str()),
-            });
-            compute_pass.set_pipeline(&pipeline);
-            compute_pass.set_bind_group(0, &compute_constants, &[]);
-            compute_pass.set_bind_group(1, &texture_bind_group, &[]);
-            compute_pass.dispatch(dispatch_with, dispatch_height, 1);
-        }
-
-        self.queue.submit(Some(encoder.finish()));
-        self.texture = output_texture;
-
-        self
     }
 
     pub fn resize(mut self, new_dimension: (u32, u32), resize: Resize) -> Self {
@@ -312,6 +227,148 @@ impl Operation {
         self
     }
 
+    pub fn box_blur(mut self, filter_size: u32) -> Self {
+        let name = "resize";
+        let capitalized_filter_name = capitalize(name);
+
+        let vertical_pass_texture = self.device.create_texture(&TextureDescriptor {
+            label: None,
+            size: self.texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_SRC
+                | TextureUsages::STORAGE_BINDING,
+        });
+        let horizontal_pass_texture = self.device.create_texture(&TextureDescriptor {
+            label: None,
+            size: self.texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_SRC
+                | TextureUsages::STORAGE_BINDING,
+        });
+
+        let shader = self.device.create_shader_module(&ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: ShaderSource::Wgsl(BOX_BLUR_SHADER.into()),
+        });
+
+        let pipeline = self
+            .device
+            .create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some(format!("{} pipeline", capitalized_filter_name).as_str()),
+                layout: None,
+                module: &shader,
+                entry_point: "main",
+            });
+
+        let settings = self.device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Image info"),
+            contents: bytemuck::cast_slice(&[filter_size]),
+            usage: BufferUsages::UNIFORM,
+        });
+
+        let compute_constants = self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("Compute constants"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: settings.as_entire_binding(),
+            }],
+        });
+
+        let vertical = self.device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Orientation"),
+            contents: bytemuck::cast_slice::<u32, u8>(&[1]),
+            usage: BufferUsages::UNIFORM,
+        });
+        let horizontal = self.device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Orientation"),
+            contents: bytemuck::cast_slice::<u32, u8>(&[0]),
+            usage: BufferUsages::UNIFORM,
+        });
+
+        let vertical_bind_group = self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("Texture bind group"),
+            layout: &pipeline.get_bind_group_layout(1),
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::TextureView(
+                        &self.texture.create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::TextureView(
+                        &vertical_pass_texture.create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: vertical.as_entire_binding(),
+                },
+            ],
+        });
+
+        let horizontal_bind_group = self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("Texture bind group"),
+            layout: &pipeline.get_bind_group_layout(1),
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::TextureView(
+                        &vertical_pass_texture.create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::TextureView(
+                        &horizontal_pass_texture.create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: horizontal.as_entire_binding(),
+                },
+            ],
+        });
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor { label: None });
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some(format!("{} pass", capitalized_filter_name).as_str()),
+            });
+            compute_pass.set_pipeline(&pipeline);
+            compute_pass.set_bind_group(0, &compute_constants, &[]);
+            compute_pass.set_bind_group(1, &vertical_bind_group, &[]);
+            let (dispatch_with, dispatch_height) = compute_work_group_count(
+                (self.texture_size.width, self.texture_size.height),
+                (128, 1),
+            );
+            compute_pass.dispatch(dispatch_with, dispatch_height, 1);
+            compute_pass.set_bind_group(1, &horizontal_bind_group, &[]);
+            let (dispatch_height, dispatch_with) = compute_work_group_count(
+                (self.texture_size.width, self.texture_size.height),
+                (1, 128),
+            );
+            compute_pass.dispatch(dispatch_with, dispatch_height, 1);
+        }
+
+        self.queue.submit(Some(encoder.finish()));
+        self.texture = horizontal_pass_texture;
+
+        self
+    }
+
     pub async fn execute(self) -> Image {
         texture_to_cpu(
             &self.device,
@@ -321,6 +378,92 @@ impl Operation {
             &self.texture,
         )
         .await
+    }
+
+    fn simple_filter(mut self, name: &str, shader_string: &str) -> Self {
+        let capitalized_filter_name = capitalize(name);
+
+        let output_texture = self.device.create_texture(&TextureDescriptor {
+            label: None,
+            size: self.texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_SRC
+                | TextureUsages::STORAGE_BINDING,
+        });
+
+        let shader = self.device.create_shader_module(&ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: ShaderSource::Wgsl(shader_string.into()),
+        });
+
+        let image_info = self.device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Image info"),
+            contents: bytemuck::cast_slice(&[self.texture_size.width, self.texture_size.height]),
+            usage: BufferUsages::UNIFORM,
+        });
+
+        let pipeline = self
+            .device
+            .create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some(format!("{} pipeline", capitalized_filter_name).as_str()),
+                layout: None,
+                module: &shader,
+                entry_point: "main",
+            });
+
+        let compute_constants = self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("Compute constants"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: image_info.as_entire_binding(),
+            }],
+        });
+
+        let texture_bind_group = self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("Texture bind group"),
+            layout: &pipeline.get_bind_group_layout(1),
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::TextureView(
+                        &self.texture.create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::TextureView(
+                        &output_texture.create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+            ],
+        });
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor { label: None });
+        {
+            let (dispatch_with, dispatch_height) = compute_work_group_count(
+                (self.texture_size.width, self.texture_size.height),
+                (16, 16),
+            );
+            let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some(format!("{} pass", capitalized_filter_name).as_str()),
+            });
+            compute_pass.set_pipeline(&pipeline);
+            compute_pass.set_bind_group(0, &compute_constants, &[]);
+            compute_pass.set_bind_group(1, &texture_bind_group, &[]);
+            compute_pass.dispatch(dispatch_with, dispatch_height, 1);
+        }
+
+        self.queue.submit(Some(encoder.finish()));
+        self.texture = output_texture;
+
+        self
     }
 }
 
