@@ -30,6 +30,10 @@ Currently, contains:
 
 ![Box flip](sample/output/sushi_gaussianblur.png)
 
+* Resize
+
+![Half size](sample/output/sushi_half.png)
+
 Test images:
 * [Bled, Slovenia, from Ursa Bavcar](https://unsplash.com/photos/6O4zf9lga6Q)
 * [Sushi, by gnokii](https://openclipart.org/detail/132169/sushi)

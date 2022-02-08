@@ -54,7 +54,7 @@ fn main() -> Result<()> {
                 let (width, height) = operation.dimensions();
                 operation.resize((width / 2, height / 2), Resize::Linear)
             }
-            BOX_BLUR => operation.box_blur(15),
+            BOX_BLUR => operation.box_blur(9),
             GAUSSIAN_BLUR => operation.gaussian_blur(3.0),
             _ => operation,
         };
