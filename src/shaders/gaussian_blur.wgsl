@@ -6,11 +6,6 @@ struct Orientation {
     vertical : u32;
 };
 
-struct Particle {
-  pos : vec2<f32>;
-  vel : vec2<f32>;
-};
-
 struct Kernel {
   sum: f32;
   values : array<f32>;
