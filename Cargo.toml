@@ -9,6 +9,6 @@ description = "A set of filters on images, for the heck of it."
 wgpu = "0.12"
 image = "0.24"
 pollster = "0.2.5"
-bytemuck = "1.7"
+bytemuck = { version = "1.7", features = ["derive"] }
 clap = { version = "3.0", features = ["cargo"] }
 anyhow = "1.0"

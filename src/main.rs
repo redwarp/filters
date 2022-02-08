@@ -10,10 +10,11 @@ use image::{GenericImageView, ImageBuffer, Rgba};
 
 const GRAYSCALE: &str = "grayscale";
 const INVERSE: &str = "inverse";
-const HFLIP: &str = "hflip";
-const VFLIP: &str = "vflip";
+const HORIZONTAL_FLIP: &str = "hflip";
+const VERTICAL_FLIP: &str = "vflip";
 const HALF: &str = "half";
-const BLUR: &str = "blur";
+const BOX_BLUR: &str = "boxblur";
+const GAUSSIAN_BLUR: &str = "gaussianblur";
 
 fn main() -> Result<()> {
     let matches = app_from_crate!()
@@ -41,7 +42,15 @@ fn main() -> Result<()> {
         .arg(
             Arg::new("filter")
                 .long("filter")
-                .possible_values([GRAYSCALE, INVERSE, HFLIP, VFLIP, HALF, BLUR])
+                .possible_values([
+                    GRAYSCALE,
+                    INVERSE,
+                    HORIZONTAL_FLIP,
+                    VERTICAL_FLIP,
+                    HALF,
+                    BOX_BLUR,
+                    GAUSSIAN_BLUR,
+                ])
                 .required(true)
                 .multiple_values(true),
         )
@@ -68,13 +77,14 @@ fn main() -> Result<()> {
         operation = match filter {
             GRAYSCALE => (operation.grayscale()),
             INVERSE => (operation.inverse()),
-            HFLIP => (operation.hflip()),
-            VFLIP => (operation.vflip()),
+            HORIZONTAL_FLIP => (operation.hflip()),
+            VERTICAL_FLIP => (operation.vflip()),
             HALF => {
                 let (width, height) = operation.dimensions();
                 operation.resize((width / 2, height / 2), Resize::Linear)
             }
-            BLUR => operation.box_blur(15),
+            BOX_BLUR => operation.box_blur(15),
+            GAUSSIAN_BLUR => operation.gaussian_blur(3.0),
             _ => operation,
         };
     }
