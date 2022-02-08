@@ -390,12 +390,19 @@ dependencies = [
 name = "filters"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "bytemuck",
+ "wgpu",
+]
+
+[[package]]
+name = "filters-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "clap",
+ "filters",
  "image",
  "pollster",
- "wgpu",
 ]
 
 [[package]]

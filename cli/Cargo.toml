@@ -1,0 +1,13 @@
+[package]
+name = "filters-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Command line tool to use filters"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies]
+filters = { path = "../core" }
+image = "0.24"
+pollster = "0.2.5"
+clap = { version = "3.0", features = ["cargo"] }
+anyhow = "1.0"
