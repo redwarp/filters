@@ -1,5 +1,4 @@
 use wgpu::{
-    util::{BufferInitDescriptor, DeviceExt},
     AddressMode, Backends, BindGroupDescriptor, BindGroupEntry, BindingResource, BufferDescriptor,
     BufferUsages, CommandEncoderDescriptor, ComputePassDescriptor, ComputePipelineDescriptor,
     Device, Extent3d, FilterMode, Instance, PowerPreference, Queue, ShaderModuleDescriptor,
@@ -136,7 +135,7 @@ impl Operation {
         });
 
         let shader = self.device.create_shader_module(&ShaderModuleDescriptor {
-            label: Some("Shader"),
+            label: Some(format!("{} shader", capitalized_filter_name).as_str()),
             source: ShaderSource::Wgsl(RESIZE_SHADER.into()),
         });
 
@@ -148,12 +147,6 @@ impl Operation {
                 module: &shader,
                 entry_point: "main",
             });
-
-        let image_info = self.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Image info"),
-            contents: bytemuck::cast_slice(&[self.texture_size.width, self.texture_size.height]),
-            usage: BufferUsages::UNIFORM,
-        });
 
         let filter_mode = match resize {
             Resize::Linear => FilterMode::Linear,
@@ -174,16 +167,10 @@ impl Operation {
         let compute_constants = self.device.create_bind_group(&BindGroupDescriptor {
             label: Some("Compute constants"),
             layout: &pipeline.get_bind_group_layout(0),
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: image_info.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::Sampler(&sampler),
-                },
-            ],
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::Sampler(&sampler),
+            }],
         });
 
         let texture_bind_group = self.device.create_bind_group(&BindGroupDescriptor {
@@ -255,14 +242,8 @@ impl Operation {
         });
 
         let shader = self.device.create_shader_module(&ShaderModuleDescriptor {
-            label: Some("Shader"),
+            label: Some(format!("{} shader", capitalized_filter_name).as_str()),
             source: ShaderSource::Wgsl(shader_string.into()),
-        });
-
-        let image_info = self.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Image info"),
-            contents: bytemuck::cast_slice(&[self.texture_size.width, self.texture_size.height]),
-            usage: BufferUsages::UNIFORM,
         });
 
         let pipeline = self
@@ -274,18 +255,9 @@ impl Operation {
                 entry_point: "main",
             });
 
-        let compute_constants = self.device.create_bind_group(&BindGroupDescriptor {
-            label: Some("Compute constants"),
-            layout: &pipeline.get_bind_group_layout(0),
-            entries: &[BindGroupEntry {
-                binding: 0,
-                resource: image_info.as_entire_binding(),
-            }],
-        });
-
         let texture_bind_group = self.device.create_bind_group(&BindGroupDescriptor {
             label: Some("Texture bind group"),
-            layout: &pipeline.get_bind_group_layout(1),
+            layout: &pipeline.get_bind_group_layout(0),
             entries: &[
                 BindGroupEntry {
                     binding: 0,
@@ -314,8 +286,7 @@ impl Operation {
                 label: Some(format!("{} pass", capitalized_filter_name).as_str()),
             });
             compute_pass.set_pipeline(&pipeline);
-            compute_pass.set_bind_group(0, &compute_constants, &[]);
-            compute_pass.set_bind_group(1, &texture_bind_group, &[]);
+            compute_pass.set_bind_group(0, &texture_bind_group, &[]);
             compute_pass.dispatch(dispatch_with, dispatch_height, 1);
         }
 

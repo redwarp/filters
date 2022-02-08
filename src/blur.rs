@@ -64,7 +64,7 @@ impl Operation {
         });
 
         let shader = self.device.create_shader_module(&ShaderModuleDescriptor {
-            label: Some("Shader"),
+            label: Some(format!("{} shader", capitalized_filter_name).as_str()),
             source: ShaderSource::Wgsl(BOX_BLUR_SHADER.into()),
         });
 
@@ -209,7 +209,7 @@ impl Operation {
         });
 
         let shader = self.device.create_shader_module(&ShaderModuleDescriptor {
-            label: Some("Shader"),
+            label: Some(format!("{} shader", capitalized_filter_name).as_str()),
             source: ShaderSource::Wgsl(GAUSSIAN_BLUR_SHADER.into()),
         });
 
