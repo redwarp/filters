@@ -67,7 +67,7 @@ fn main() -> Result<()> {
     let image = Image {
         width,
         height,
-        pixels: image.to_rgba8().into_raw(),
+        pixels: bytemuck::cast_slice(&image.to_rgba8().into_raw()).to_vec(),
     };
 
     let now = Instant::now();
@@ -96,7 +96,7 @@ fn main() -> Result<()> {
     );
 
     let buffer =
-        ImageBuffer::<Rgba<u8>, _>::from_raw(image.width, image.height, image.pixels).unwrap();
+        ImageBuffer::<Rgba<u8>, _>::from_raw(image.width, image.height, image.as_raw()).unwrap();
     buffer.save(output).unwrap();
 
     Ok(())

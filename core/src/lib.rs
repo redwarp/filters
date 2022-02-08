@@ -14,15 +14,40 @@ const HFLIP_SHADER: &str = include_str!("shaders/hflip.wgsl");
 const VFLIP_SHADER: &str = include_str!("shaders/vflip.wgsl");
 const RESIZE_SHADER: &str = include_str!("shaders/resize.wgsl");
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Zeroable, bytemuck::Pod, PartialEq)]
+pub struct Rgba([u8; 4]);
+
+#[derive(Debug)]
 pub struct Image {
     pub width: u32,
     pub height: u32,
-    pub pixels: Vec<u8>,
+    pub pixels: Vec<Rgba>,
 }
 
 impl Image {
     pub async fn operation(&self) -> Operation {
         Operation::new(self).await
+    }
+
+    pub fn as_raw(&self) -> &[u8] {
+        bytemuck::cast_slice(&self.pixels)
+    }
+}
+
+impl PartialEq for Image {
+    fn eq(&self, other: &Self) -> bool {
+        fn compare_slices<T: PartialEq>(a: &[T], b: &[T]) -> bool {
+            if a.len() == b.len() {
+                !a.iter().zip(b.iter()).any(|(a, b)| a != b)
+            } else {
+                false
+            }
+        }
+
+        self.width == other.width
+            && self.height == other.height
+            && compare_slices(&self.pixels, &other.pixels)
     }
 }
 
@@ -76,7 +101,7 @@ impl Operation {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &image.pixels,
+            bytemuck::cast_slice(&image.pixels),
             wgpu::ImageDataLayout {
                 offset: 0,
                 bytes_per_row: std::num::NonZeroU32::new(4 * image.width),
@@ -353,13 +378,13 @@ async fn texture_to_cpu(
     mapping.await.unwrap();
 
     let padded_data = buffer_slice.get_mapped_range();
-    let mut pixels: Vec<u8> = vec![0; unpadded_bytes_per_row * height as usize];
 
+    let mut pixels: Vec<Rgba> = vec![Rgba([0, 0, 0, 0]); (width * height) as usize];
     for (padded, pixels) in padded_data
         .chunks_exact(padded_bytes_per_row)
-        .zip(pixels.chunks_exact_mut(unpadded_bytes_per_row))
+        .zip(pixels.chunks_exact_mut(width as usize))
     {
-        pixels.copy_from_slice(&padded[..unpadded_bytes_per_row]);
+        pixels.copy_from_slice(bytemuck::cast_slice(&padded[..unpadded_bytes_per_row]));
     }
 
     Image {
@@ -405,7 +430,7 @@ pub(crate) fn capitalize(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::{compute_work_group_count, padded_bytes_per_row};
+    use crate::{compute_work_group_count, padded_bytes_per_row, Image, Rgba};
 
     #[test]
     fn padded_bytes_per_row_width_4() {
@@ -433,5 +458,65 @@ mod tests {
         let group_count = compute_work_group_count((100, 200), (32, 32));
 
         assert_eq!((4, 7), group_count);
+    }
+
+    #[test]
+    fn grayscale_test() {
+        let image = Image {
+            width: 2,
+            height: 2,
+            pixels: vec![
+                Rgba([0, 0, 0, 0]),
+                Rgba([0, 0, 0, 0]),
+                Rgba([0, 0, 0, 0]),
+                Rgba([0, 0, 0, 0]),
+            ],
+        };
+
+        let expected = Image {
+            width: 2,
+            height: 2,
+            pixels: vec![
+                Rgba([255, 255, 255, 0]),
+                Rgba([255, 255, 255, 0]),
+                Rgba([255, 255, 255, 0]),
+                Rgba([255, 255, 255, 0]),
+            ],
+        };
+
+        let operation = pollster::block_on(image.operation()).inverse();
+        let output = pollster::block_on(operation.execute());
+
+        assert_eq!(expected, output);
+    }
+
+    #[test]
+    fn hflip_test() {
+        let image = Image {
+            width: 2,
+            height: 2,
+            pixels: vec![
+                Rgba([128, 0, 0, 0]),
+                Rgba([0, 0, 54, 0]),
+                Rgba([0, 22, 0, 0]),
+                Rgba([12, 7, 32, 0]),
+            ],
+        };
+
+        let expected = Image {
+            width: 2,
+            height: 2,
+            pixels: vec![
+                Rgba([0, 0, 54, 0]),
+                Rgba([128, 0, 0, 0]),
+                Rgba([12, 7, 32, 0]),
+                Rgba([0, 22, 0, 0]),
+            ],
+        };
+
+        let operation = pollster::block_on(image.operation()).hflip();
+        let output = pollster::block_on(operation.execute());
+
+        assert_eq!(expected, output);
     }
 }

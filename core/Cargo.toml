@@ -8,3 +8,6 @@ description = "A set of filters on images, for the heck of it."
 [dependencies]
 wgpu = "0.12"
 bytemuck = { version = "1.7", features = ["derive"] }
+
+[dev-dependencies]
+pollster = "0.2"

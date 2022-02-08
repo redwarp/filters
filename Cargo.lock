@@ -391,6 +391,7 @@ name = "filters"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "pollster",
  "wgpu",
 ]
 
@@ -399,6 +400,7 @@ name = "filters-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytemuck",
  "clap",
  "filters",
  "image",
