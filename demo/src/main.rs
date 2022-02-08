@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::Result;
 use filters::{Image, Resize};
-use image::{codecs::png::PngEncoder, GenericImageView, ImageBuffer, ImageEncoder, Rgba};
+use image::{codecs::png::PngEncoder, GenericImageView, ImageEncoder};
 use oxipng::Options;
 
 const GRAYSCALE: &str = "grayscale";
