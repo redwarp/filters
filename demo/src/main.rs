@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::Result;
-use filters::{Image, Resize};
+use filters::{Filters, Image, Resize};
 use image::{codecs::png::PngEncoder, GenericImageView, ImageEncoder};
 use oxipng::Options;
 use pollster::FutureExt;
@@ -30,7 +30,7 @@ fn main() -> Result<()> {
         height,
         pixels: bytemuck::cast_slice(&image.to_rgba8().into_raw()).to_vec(),
     };
-    let filters = [
+    let filter_list = [
         GRAYSCALE,
         INVERSE,
         HORIZONTAL_FLIP,
@@ -40,11 +40,13 @@ fn main() -> Result<()> {
         GAUSSIAN_BLUR,
     ];
 
-    for filter in filters {
+    let filters = Filters::new().block_on();
+
+    for filter in filter_list {
         let output = output_file(input, filter);
 
         let now = Instant::now();
-        let mut operation = image.operation().block_on();
+        let mut operation = image.operation(&filters);
 
         operation = match filter {
             GRAYSCALE => (operation.grayscale()),
@@ -62,7 +64,7 @@ fn main() -> Result<()> {
         let image = operation.execute().block_on();
 
         println!(
-            "Took {} ms to apply the filter to the image",
+            "Took {} ms to apply the filter {filter} to the image",
             now.elapsed().as_millis()
         );
 

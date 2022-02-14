@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Result;
 use clap::{app_from_crate, Arg};
-use filters::{Image, Resize};
+use filters::{Filters, Image, Resize};
 use image::{GenericImageView, ImageBuffer, Rgba};
 use pollster::FutureExt;
 
@@ -59,8 +59,8 @@ fn main() -> Result<()> {
 
     let input = matches.value_of("input").expect("Input is required");
     let image = image::open(input)?;
-    let filters = matches.values_of("filter").expect("Filter is required");
-    let filter_contat = filters.clone().collect::<Vec<_>>().join("_");
+    let filter_list = matches.values_of("filter").expect("Filter is required");
+    let filter_contat = filter_list.clone().collect::<Vec<_>>().join("_");
     let output = output_file(matches.value_of("output"), input, &filter_contat);
 
     let (width, height) = image.dimensions();
@@ -71,10 +71,11 @@ fn main() -> Result<()> {
         pixels: bytemuck::cast_slice(&image.to_rgba8().into_raw()).to_vec(),
     };
 
+    let filters = Filters::new().block_on();
     let now = Instant::now();
-    let mut operation = image.operation().block_on();
+    let mut operation = image.operation(&filters);
 
-    for filter in filters {
+    for filter in filter_list {
         operation = match filter {
             GRAYSCALE => (operation.grayscale()),
             INVERSE => (operation.inverse()),

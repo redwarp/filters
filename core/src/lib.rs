@@ -26,8 +26,8 @@ pub struct Image {
 }
 
 impl Image {
-    pub async fn operation(&self) -> Operation {
-        Operation::new(self).await
+    pub fn operation<'a>(&self, filters: &'a Filters) -> Operation<'a> {
+        Operation::new(self, &filters.device, &filters.queue)
     }
 
     pub fn as_raw(&self) -> &[u8] {
@@ -51,20 +51,13 @@ impl PartialEq for Image {
     }
 }
 
-pub struct Operation {
-    pub(crate) device: Device,
-    pub(crate) queue: Queue,
-    pub(crate) texture: Texture,
-    pub(crate) texture_size: Extent3d,
+pub struct Filters {
+    device: Device,
+    queue: Queue,
 }
 
-pub enum Resize {
-    Linear,
-    Nearest,
-}
-
-impl Operation {
-    async fn new(image: &Image) -> Self {
+impl Filters {
+    pub async fn new() -> Self {
         let instance = Instance::new(Backends::all());
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptionsBase {
@@ -79,6 +72,24 @@ impl Operation {
             .await
             .unwrap();
 
+        Self { device, queue }
+    }
+}
+
+pub struct Operation<'a> {
+    pub(crate) device: &'a Device,
+    pub(crate) queue: &'a Queue,
+    pub(crate) texture: Texture,
+    pub(crate) texture_size: Extent3d,
+}
+
+pub enum Resize {
+    Linear,
+    Nearest,
+}
+
+impl<'a> Operation<'a> {
+    fn new(image: &Image, device: &'a Device, queue: &'a Queue) -> Operation<'a> {
         let texture_size = Extent3d {
             width: image.width,
             height: image.height,
@@ -237,8 +248,8 @@ impl Operation {
 
     pub async fn execute(self) -> Image {
         texture_to_cpu(
-            &self.device,
-            &self.queue,
+            self.device,
+            self.queue,
             self.texture_size.width,
             self.texture_size.height,
             &self.texture,
@@ -425,7 +436,9 @@ pub(crate) fn capitalize(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::{compute_work_group_count, padded_bytes_per_row, Image, Rgba};
+    use pollster::FutureExt;
+
+    use crate::{compute_work_group_count, padded_bytes_per_row, Filters, Image, Rgba};
 
     #[test]
     fn padded_bytes_per_row_width_4() {
@@ -478,8 +491,9 @@ mod tests {
                 Rgba([255, 255, 255, 0]),
             ],
         };
+        let filters = Filters::new().block_on();
 
-        let operation = pollster::block_on(image.operation()).inverse();
+        let operation = image.operation(&filters).inverse();
         let output = pollster::block_on(operation.execute());
 
         assert_eq!(expected, output);
@@ -508,8 +522,9 @@ mod tests {
                 Rgba([0, 22, 0, 0]),
             ],
         };
+        let filters = Filters::new().block_on();
 
-        let operation = pollster::block_on(image.operation()).hflip();
+        let operation = image.operation(&filters).hflip();
         let output = pollster::block_on(operation.execute());
 
         assert_eq!(expected, output);

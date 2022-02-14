@@ -35,7 +35,7 @@ impl Kernel {
     }
 }
 
-impl Operation {
+impl<'a> Operation<'a> {
     pub fn box_blur(mut self, filter_size: u32) -> Self {
         let name = "box blur";
         let capitalized_filter_name = capitalize(name);
