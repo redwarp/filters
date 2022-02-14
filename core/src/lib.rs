@@ -95,17 +95,12 @@ impl Operation {
             label: Some("texture"),
         });
         queue.write_texture(
-            wgpu::ImageCopyTexture {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
+            texture.as_image_copy(),
             bytemuck::cast_slice(&image.pixels),
             wgpu::ImageDataLayout {
                 offset: 0,
                 bytes_per_row: std::num::NonZeroU32::new(4 * image.width),
-                rows_per_image: std::num::NonZeroU32::new(image.height),
+                rows_per_image: None,
             },
             texture_size,
         );

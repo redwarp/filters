@@ -9,6 +9,7 @@ use anyhow::Result;
 use filters::{Image, Resize};
 use image::{codecs::png::PngEncoder, GenericImageView, ImageEncoder};
 use oxipng::Options;
+use pollster::FutureExt;
 
 const GRAYSCALE: &str = "grayscale";
 const INVERSE: &str = "inverse";
@@ -43,7 +44,7 @@ fn main() -> Result<()> {
         let output = output_file(input, filter);
 
         let now = Instant::now();
-        let mut operation = pollster::block_on(image.operation());
+        let mut operation = image.operation().block_on();
 
         operation = match filter {
             GRAYSCALE => (operation.grayscale()),
@@ -58,7 +59,7 @@ fn main() -> Result<()> {
             GAUSSIAN_BLUR => operation.gaussian_blur(3.0),
             _ => operation,
         };
-        let image = pollster::block_on(operation.execute());
+        let image = operation.execute().block_on();
 
         println!(
             "Took {} ms to apply the filter to the image",

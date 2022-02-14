@@ -7,6 +7,7 @@ use anyhow::Result;
 use clap::{app_from_crate, Arg};
 use filters::{Image, Resize};
 use image::{GenericImageView, ImageBuffer, Rgba};
+use pollster::FutureExt;
 
 const GRAYSCALE: &str = "grayscale";
 const INVERSE: &str = "inverse";
@@ -71,7 +72,7 @@ fn main() -> Result<()> {
     };
 
     let now = Instant::now();
-    let mut operation = pollster::block_on(image.operation());
+    let mut operation = image.operation().block_on();
 
     for filter in filters {
         operation = match filter {
@@ -88,7 +89,7 @@ fn main() -> Result<()> {
             _ => operation,
         };
     }
-    let image = pollster::block_on(operation.execute());
+    let image = operation.execute().block_on();
 
     println!(
         "Took {} ms to apply the filter to the image",
