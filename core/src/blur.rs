@@ -63,7 +63,7 @@ impl<'a> Operation<'a> {
                 | TextureUsages::STORAGE_BINDING,
         });
 
-        let shader = self.device.create_shader_module(&ShaderModuleDescriptor {
+        let shader = self.device.create_shader_module(ShaderModuleDescriptor {
             label: Some(format!("{} shader", capitalized_filter_name).as_str()),
             source: ShaderSource::Wgsl(BOX_BLUR_SHADER.into()),
         });
@@ -163,13 +163,13 @@ impl<'a> Operation<'a> {
                 (self.texture_size.width, self.texture_size.height),
                 (128, 1),
             );
-            compute_pass.dispatch(dispatch_with, dispatch_height, 1);
+            compute_pass.dispatch_workgroups(dispatch_with, dispatch_height, 1);
             compute_pass.set_bind_group(1, &horizontal_bind_group, &[]);
             let (dispatch_height, dispatch_with) = compute_work_group_count(
                 (self.texture_size.width, self.texture_size.height),
                 (1, 128),
             );
-            compute_pass.dispatch(dispatch_with, dispatch_height, 1);
+            compute_pass.dispatch_workgroups(dispatch_with, dispatch_height, 1);
         }
 
         self.queue.submit(Some(encoder.finish()));
@@ -208,7 +208,7 @@ impl<'a> Operation<'a> {
                 | TextureUsages::STORAGE_BINDING,
         });
 
-        let shader = self.device.create_shader_module(&ShaderModuleDescriptor {
+        let shader = self.device.create_shader_module(ShaderModuleDescriptor {
             label: Some(format!("{} shader", capitalized_filter_name).as_str()),
             source: ShaderSource::Wgsl(GAUSSIAN_BLUR_SHADER.into()),
         });
@@ -320,13 +320,13 @@ impl<'a> Operation<'a> {
                 (self.texture_size.width, self.texture_size.height),
                 (128, 1),
             );
-            compute_pass.dispatch(dispatch_with, dispatch_height, 1);
+            compute_pass.dispatch_workgroups(dispatch_with, dispatch_height, 1);
             compute_pass.set_bind_group(1, &horizontal_bind_group, &[]);
             let (dispatch_height, dispatch_with) = compute_work_group_count(
                 (self.texture_size.width, self.texture_size.height),
                 (1, 128),
             );
-            compute_pass.dispatch(dispatch_with, dispatch_height, 1);
+            compute_pass.dispatch_workgroups(dispatch_with, dispatch_height, 1);
         }
 
         self.queue.submit(Some(encoder.finish()));

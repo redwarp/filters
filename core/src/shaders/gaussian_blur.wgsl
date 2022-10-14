@@ -1,25 +1,26 @@
 struct Settings {
-    filter_size : u32;
+    filter_size : u32,
 };
 
 struct Orientation {
-    vertical : u32;
+    vertical : u32,
 };
 
 struct Kernel {
-  sum: f32;
-  values : array<f32>;
+  sum: f32,
+  values : array<f32>,
 };
 
-[[group(0), binding(0)]] var<uniform> settings : Settings;
-[[group(0), binding(1)]] var<storage, read> kernel : Kernel;
-[[group(1), binding(0)]] var input_texture : texture_2d<f32>;
-[[group(1), binding(1)]] var output_texture : texture_storage_2d<rgba8unorm, write>;
-[[group(1), binding(2)]] var<uniform> orientation: Orientation;
+@group(0) @binding(0) var<uniform> settings : Settings;
+@group(0) @binding(1) var<storage, read> kernel : Kernel;
+@group(1) @binding(0) var input_texture : texture_2d<f32>;
+@group(1) @binding(1) var output_texture : texture_storage_2d<rgba8unorm, write>;
+@group(1) @binding(2) var<uniform> orientation: Orientation;
 
-[[stage(compute), workgroup_size(128)]]
+@compute
+@workgroup_size(128)
 fn main(
-  [[builtin(global_invocation_id)]] global_id : vec3<u32>,
+  @builtin(global_invocation_id) global_id : vec3<u32>,
 ) {
     let filter_radius = i32((settings.filter_size - 1u) / 2u);
     let filter_size = i32(settings.filter_size);

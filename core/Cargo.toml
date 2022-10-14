@@ -6,8 +6,8 @@ description = "A set of filters on images, for the heck of it."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
-wgpu = "0.12"
-bytemuck = { version = "1.7", features = ["derive"] }
+wgpu = "0.14"
+bytemuck = { version = "1.12", features = ["derive"] }
 
 [dev-dependencies]
 pollster = "0.2"

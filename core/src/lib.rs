@@ -15,7 +15,7 @@ const VFLIP_SHADER: &str = include_str!("shaders/vflip.wgsl");
 const RESIZE_SHADER: &str = include_str!("shaders/resize.wgsl");
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Zeroable, bytemuck::Pod, PartialEq)]
+#[derive(Debug, Clone, Copy, bytemuck::Zeroable, bytemuck::Pod, PartialEq, Eq)]
 pub struct Rgba([u8; 4]);
 
 #[derive(Debug)]
@@ -165,7 +165,7 @@ impl<'a> Operation<'a> {
                 | TextureUsages::STORAGE_BINDING,
         });
 
-        let shader = self.device.create_shader_module(&ShaderModuleDescriptor {
+        let shader = self.device.create_shader_module(ShaderModuleDescriptor {
             label: Some(format!("{} shader", capitalized_filter_name).as_str()),
             source: ShaderSource::Wgsl(RESIZE_SHADER.into()),
         });
@@ -237,7 +237,7 @@ impl<'a> Operation<'a> {
             compute_pass.set_pipeline(&pipeline);
             compute_pass.set_bind_group(0, &compute_constants, &[]);
             compute_pass.set_bind_group(1, &texture_bind_group, &[]);
-            compute_pass.dispatch(dispatch_with, dispatch_height, 1);
+            compute_pass.dispatch_workgroups(dispatch_with, dispatch_height, 1);
         }
 
         self.queue.submit(Some(encoder.finish()));
@@ -272,7 +272,7 @@ impl<'a> Operation<'a> {
                 | TextureUsages::STORAGE_BINDING,
         });
 
-        let shader = self.device.create_shader_module(&ShaderModuleDescriptor {
+        let shader = self.device.create_shader_module(ShaderModuleDescriptor {
             label: Some(format!("{} shader", capitalized_filter_name).as_str()),
             source: ShaderSource::Wgsl(shader_string.into()),
         });
@@ -318,7 +318,7 @@ impl<'a> Operation<'a> {
             });
             compute_pass.set_pipeline(&pipeline);
             compute_pass.set_bind_group(0, &texture_bind_group, &[]);
-            compute_pass.dispatch(dispatch_with, dispatch_height, 1);
+            compute_pass.dispatch_workgroups(dispatch_with, dispatch_height, 1);
         }
 
         self.queue.submit(Some(encoder.finish()));
@@ -378,10 +378,9 @@ async fn texture_to_cpu(
     queue.submit(Some(encoder.finish()));
 
     let buffer_slice = output_buffer.slice(..);
-    let mapping = buffer_slice.map_async(wgpu::MapMode::Read);
+    buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
 
     device.poll(wgpu::Maintain::Wait);
-    mapping.await.unwrap();
 
     let padded_data = buffer_slice.get_mapped_range();
 
