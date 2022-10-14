@@ -49,10 +49,10 @@ fn main() -> Result<()> {
         let mut operation = image.operation(&filters);
 
         operation = match filter {
-            GRAYSCALE => (operation.grayscale()),
-            INVERSE => (operation.inverse()),
-            HORIZONTAL_FLIP => (operation.hflip()),
-            VERTICAL_FLIP => (operation.vflip()),
+            GRAYSCALE => operation.grayscale(),
+            INVERSE => operation.inverse(),
+            HORIZONTAL_FLIP => operation.hflip(),
+            VERTICAL_FLIP => operation.vflip(),
             HALF => {
                 let (width, height) = operation.dimensions();
                 operation.resize((width / 2, height / 2), Resize::Linear)

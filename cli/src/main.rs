@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::Result;
-use clap::{app_from_crate, Arg};
+use clap::Arg;
 use filters::{Filters, Image, Resize};
 use image::{GenericImageView, ImageBuffer, Rgba};
 use pollster::FutureExt;
@@ -18,16 +18,18 @@ const BOX_BLUR: &str = "boxblur";
 const GAUSSIAN_BLUR: &str = "gaussianblur";
 
 fn main() -> Result<()> {
-    let matches = app_from_crate!()
+    let matches = clap::command!()
         .arg(
             Arg::new("input")
                 .long("input")
                 .short('i')
                 .required(true)
-                .takes_value(true)
-                .validator(|input| {
-                    if input.ends_with(".png") || input.ends_with(".jpg") {
-                        Ok(())
+                .num_args(1)
+                .value_parser(|input: &str| {
+                    if (input.ends_with(".png") || input.ends_with(".jpg"))
+                        && PathBuf::from(&input).exists()
+                    {
+                        Ok(input.to_owned())
                     } else {
                         Err(String::from("Filters only support png or jpg files"))
                     }
@@ -38,12 +40,12 @@ fn main() -> Result<()> {
                 .long("output")
                 .short('o')
                 .required(false)
-                .takes_value(true),
+                .num_args(1),
         )
         .arg(
             Arg::new("filter")
                 .long("filter")
-                .possible_values([
+                .value_parser([
                     GRAYSCALE,
                     INVERSE,
                     HORIZONTAL_FLIP,
@@ -53,15 +55,26 @@ fn main() -> Result<()> {
                     GAUSSIAN_BLUR,
                 ])
                 .required(true)
-                .multiple_values(true),
+                .num_args(1..),
         )
         .get_matches();
 
-    let input = matches.value_of("input").expect("Input is required");
+    let input = matches
+        .get_one::<String>("input")
+        .expect("Input is required");
     let image = image::open(input)?;
-    let filter_list = matches.values_of("filter").expect("Filter is required");
-    let filter_contat = filter_list.clone().collect::<Vec<_>>().join("_");
-    let output = output_file(matches.value_of("output"), input, &filter_contat);
+    let filter_list: Vec<String> = matches
+        .get_many::<String>("filter")
+        .expect("Filter is required")
+        .cloned()
+        .collect();
+
+    let filter_concat = filter_list.join("_");
+    let output = output_file(
+        matches.get_one::<String>("output").map(|x| &**x),
+        input,
+        &filter_concat,
+    );
 
     let (width, height) = image.dimensions();
 
@@ -76,11 +89,11 @@ fn main() -> Result<()> {
     let mut operation = image.operation(&filters);
 
     for filter in filter_list {
-        operation = match filter {
-            GRAYSCALE => (operation.grayscale()),
-            INVERSE => (operation.inverse()),
-            HORIZONTAL_FLIP => (operation.hflip()),
-            VERTICAL_FLIP => (operation.vflip()),
+        operation = match filter.as_str() {
+            GRAYSCALE => operation.grayscale(),
+            INVERSE => operation.inverse(),
+            HORIZONTAL_FLIP => operation.hflip(),
+            VERTICAL_FLIP => operation.vflip(),
             HALF => {
                 let (width, height) = operation.dimensions();
                 operation.resize((width / 2, height / 2), Resize::Linear)
